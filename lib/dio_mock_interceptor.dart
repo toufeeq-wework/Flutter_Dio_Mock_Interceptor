@@ -8,35 +8,36 @@ import 'package:template_expressions/template_expressions.dart';
 class MockInterceptor extends Interceptor {
   late Future _futureManifestLoaded;
   final List<Future> _futuresBundleLoaded = [];
-  final Map<String, Map<String, dynamic>> _routes = {};
+  final Map<(String, String), Map<String, dynamic>> _routes = {};
   final RegExp _regexpTemplate = RegExp(r'"\$\{template\}"');
   static const StandardExpressionSyntax _exSyntax = StandardExpressionSyntax();
 
   MockInterceptor() {
     _futureManifestLoaded =
         rootBundle.loadString('AssetManifest.json').then((manifestContent) {
-      Map<String, dynamic> manifestMap = json.decode(manifestContent);
+          Map<String, dynamic> manifestMap = json.decode(manifestContent);
 
-      List<String> mockResourcePaths = manifestMap.keys
-          .where((String key) => key.contains('mock/') && key.endsWith('.json'))
-          .toList();
-      if (mockResourcePaths.isEmpty) {
-        return;
-      }
-      for (var path in mockResourcePaths) {
-        Future bundleLoaded = rootBundle.load(path).then((ByteData data) {
-          String routeModule = utf8.decode(
-            data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-          );
-          json.decode(routeModule).forEach((dynamic map) {
-            Map<String, dynamic> route = map as Map<String, dynamic>;
-            String path = route['path'] as String;
-            _routes.putIfAbsent(path, () => route);
-          });
+          List<String> mockResourcePaths = manifestMap.keys
+              .where((String key) => key.contains('mock/') && key.endsWith('.json'))
+              .toList();
+          if (mockResourcePaths.isEmpty) {
+            return;
+          }
+          for (var path in mockResourcePaths) {
+            Future bundleLoaded = rootBundle.load(path).then((ByteData data) {
+              String routeModule = utf8.decode(
+                data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+              );
+              json.decode(routeModule).forEach((dynamic map) {
+                Map<String, dynamic> route = map as Map<String, dynamic>;
+                String path = route['path'] as String;
+                String method = route['method'] as String;
+                _routes.putIfAbsent((path, method), () => route);
+              });
+            });
+            _futuresBundleLoaded.add(bundleLoaded);
+          }
         });
-        _futuresBundleLoaded.add(bundleLoaded);
-      }
-    });
   }
 
   @override
@@ -45,7 +46,7 @@ class MockInterceptor extends Interceptor {
     await _futureManifestLoaded;
     await Future.wait(_futuresBundleLoaded);
 
-    Map<String, dynamic>? route = _routes[options.path];
+    Map<String, dynamic>? route = _routes[(options.path, options.method)];
 
     if (route == null) {
       handler.reject(DioException(
@@ -59,7 +60,7 @@ class MockInterceptor extends Interceptor {
       handler.reject(DioException(
           requestOptions: options,
           error:
-              "Can't find route setting: ${options.path}:${options.method}"));
+          "Can't find route setting: ${options.path}:${options.method}"));
       return;
     }
 
@@ -81,15 +82,15 @@ class MockInterceptor extends Interceptor {
 
     exContext.putIfAbsent(
         'req',
-        () => {
-              'headers': options.headers,
-              'queryParameters': options.queryParameters,
-              'baseUrl': options.baseUrl,
-              'method': options.method,
-              'path': options.path,
-              // 'uri': options.uri.,
-              // 'connectTimeout': options.connectTimeout
-            });
+            () => {
+          'headers': options.headers,
+          'queryParameters': options.queryParameters,
+          'baseUrl': options.baseUrl,
+          'method': options.method,
+          'path': options.path,
+          // 'uri': options.uri.,
+          // 'connectTimeout': options.connectTimeout
+        });
 
     if (options.data != null) {
       if (options.data is Map) {
@@ -154,7 +155,7 @@ class MockInterceptor extends Interceptor {
     ).process(context: exContext);
 
     handler.resolve(Response(
-      data: resData,
+      data: jsonDecode(resData),
       requestOptions: options,
       statusCode: statusCode,
     ));
